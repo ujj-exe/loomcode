@@ -164,16 +164,23 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
 
   // ── frame ──────────────────────────────────────────────────────────────────
   // Bursts of events (stream deltas arriving together) collapse into one frame on the next microtask,
-  // so a lone token still paints immediately.
+  // so a lone token still paints immediately; frames are at least 16ms apart, so a flood of wheel
+  // events from a trackpad can't outrun the terminal.
   let drawQueued = false;
+  let lastFrame = 0;
   function draw() {
     if (drawQueued) return;
     drawQueued = true;
-    queueMicrotask(() => {
+    const run = () => {
       drawQueued = false;
+      lastFrame = performance.now();
       frame();
-    });
+    };
+    const wait = lastFrame + 16 - performance.now();
+    if (wait > 0) setTimeout(run, wait);
+    else queueMicrotask(run);
   }
+  let lastTotal = 0;
 
   function header(W: number, drawerW: number): string[] {
     const project = basename(opts.cwd);
@@ -247,10 +254,7 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
     for (const l of ed.lines.slice(first, first + EDITOR_MAX)) lines.push(` ${l}`);
     const cursor = { row: edRow + ed.cursor.row - first, col: ed.cursor.col + 1 };
     lines.push("");
-    const hints = c.dim("  enter send  ·  ⇧⏎ newline  ·  ⇧⇥ effort  ·  ^K commands  ·  ^B files  ·  ^V image  ·  drag to copy");
-    const imgs = editor.images.length ? c.accent(`  ▣ ${editor.images.length} image${editor.images.length > 1 ? "s" : ""} attached`) : "";
-    const left = imgs || hints;
-    lines.push(fit(left, W));
+    if (editor.images.length) lines.push(fit(c.accent(`  ▣ ${editor.images.length} image${editor.images.length > 1 ? "s" : ""} attached`), W));
     return { lines, cursor };
   }
 
@@ -268,6 +272,9 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
     const bodyH = Math.max(1, H - HEADER - bot.lines.length);
     const { lines, actions } = transcript.layout(leftW);
     const total = lines.length;
+    // Scrolled up, the view stays on the same lines while the reply grows (or shrinks) below it.
+    if (scroll > 0) scroll += total - lastTotal;
+    lastTotal = total;
     scroll = Math.max(0, Math.min(scroll, total - bodyH));
     const top = Math.max(0, total - bodyH - scroll);
     const dr = drawerW ? drawer.render(drawerW, bodyH) : { lines: [] as string[], actions: new Map() };

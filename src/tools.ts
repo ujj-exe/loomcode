@@ -16,7 +16,8 @@ export const TOOL_NAMES = ["read", "search", "edit", "shell", "script"].map((n) 
 
 // `text` is the data (what a script gets back); `note` is harness commentary — truncation, exit status — that
 // the model sees but scripts never parse. `cut` marks notes that scripts must still be told about.
-export type ToolResult = { text: string; isError: boolean; note?: string; cut?: boolean };
+// `raw` is the uncut data for scripts, when `text` was squeezed for the model.
+export type ToolResult = { text: string; isError: boolean; note?: string; cut?: boolean; raw?: string };
 const ok = (text: string, note?: string, cut?: boolean): ToolResult => ({ text, isError: false, note, cut });
 const fail = (text: string): ToolResult => ({ text, isError: true });
 
@@ -29,12 +30,46 @@ export function cap(out: string, keep: "head" | "tail"): { text: string; shown: 
   let bytes = 0;
   for (const line of order) {
     const size = Buffer.byteLength(line) + 1;
-    if (kept.length >= MAX_LINES || bytes + size > MAX_BYTES) break;
+    if (kept.length >= MAX_LINES || bytes + size > MAX_BYTES) {
+      // A single line bigger than the whole budget (minified code) still shows its start, so paging moves on.
+      if (!kept.length) kept.push(`${Buffer.from(line).subarray(0, MAX_BYTES - 100).toString()}… [line cut: ${line.length} chars]`);
+      break;
+    }
     kept.push(line);
     bytes += size;
   }
   if (keep === "tail") kept.reverse();
   return { text: kept.join("\n"), shown: kept.length, total: lines.length };
+}
+
+// What the model sees of shell output: the head (where the first error usually is) and the tail (summaries,
+// exit messages), with long lines clipped. The full text is spilled to a file and scripts get it uncut.
+const SHELL_HEAD = { lines: 100, bytes: 5 * 1024 };
+const SHELL_TAIL = { lines: 200, bytes: 11 * 1024 };
+
+export function squeeze(out: string): { text: string; omitted?: [number, number]; total: number; clipped: number } | null {
+  let clipped = 0;
+  const lines = out.split("\n").map((l) => {
+    if (l.length <= MAX_LINE_CHARS) return l;
+    clipped++;
+    return `${l.slice(0, MAX_LINE_CHARS)}… [+${l.length - MAX_LINE_CHARS} chars]`;
+  });
+  const take = (from: string[], max: { lines: number; bytes: number }) => {
+    const kept: string[] = [];
+    let bytes = 0;
+    for (const l of from) {
+      bytes += Buffer.byteLength(l) + 1;
+      if (kept.length >= max.lines || bytes > max.bytes) break;
+      kept.push(l);
+    }
+    return kept;
+  };
+  const head = take(lines, SHELL_HEAD);
+  const tail = take(lines.slice(head.length).reverse(), SHELL_TAIL).reverse();
+  const total = lines.length;
+  if (head.length + tail.length === total) return clipped ? { text: lines.join("\n"), total, clipped } : null;
+  const omitted: [number, number] = [head.length + 1, total - tail.length];
+  return { text: [...head, `… [lines ${omitted[0]}-${omitted[1]} omitted] …`, ...tail].join("\n"), omitted, total, clipped };
 }
 
 let spillDir: string | undefined;
@@ -121,14 +156,15 @@ export function loomImpl(cwd: string) {
 
   async function shell({ command, timeout_s = 120 }: { command: string; timeout_s?: number }) {
     // One stream so stderr lines stay in order with stdout.
-    const p = Bun.spawn(["zsh", "-c", `exec 2>&1\n${command}`], { cwd, stdout: "pipe", stdin: "ignore", timeout: timeout_s * 1000, killSignal: "SIGKILL" });
+    const p = Bun.spawn(["zsh", "-c", `exec 2>&1\nsetopt no_nomatch\n${command}`], { cwd, stdout: "pipe", stdin: "ignore", timeout: timeout_s * 1000, killSignal: "SIGKILL" });
     const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
     const status = p.signalCode ? `killed by ${p.signalCode}${p.signalCode === "SIGKILL" ? ` (timeout ${timeout_s}s?)` : ""}` : `exit ${code}`;
     const body = out.trimEnd();
-    // Errors and summaries land at the end, so keep the tail and park the full text in a file.
-    const c = cap(body, "tail");
-    const cut = c ? `[showing last ${c.shown} of ${c.total} lines; full output: ${await spill(body)}]` : "";
-    return { text: c ? c.text : body, isError: code !== 0, note: [cut, `[${status}]`].filter(Boolean).join("\n"), cut: !!c };
+    const s = squeeze(body);
+    const what = s && [s.omitted && `lines ${s.omitted[0]}-${s.omitted[1]} of ${s.total} omitted`, s.clipped && `${s.clipped} long line${s.clipped > 1 ? "s" : ""} clipped`];
+    const cut = s ? `[${what!.filter(Boolean).join(", ")}; full output: ${await spill(body)} (read it with offset/limit)]` : "";
+    const note = [cut, `[${status}]`].filter(Boolean).join("\n");
+    return { text: s ? s.text : body, isError: code !== 0, note, cut: !!s, ...(s && { raw: body }) };
   }
 
   return { read, search, edit, shell };
@@ -164,8 +200,8 @@ export function loomTools(cwd: string) {
   );
   const shell = tool(
     "shell",
-    "Run a zsh command in the project directory (stdout+stderr combined). Long output keeps the last 2000 lines " +
-      "and saves the full text to a file you can search.",
+    "Run a zsh command in the project directory (stdout+stderr combined). Long output shows the first 100 and last 200 lines " +
+      "(long lines clipped) and saves the full text to a file you can read.",
     { command: z.string(), timeout_s: z.number().int().min(1).max(600).optional() },
     async (a) => mcp(await impl.shell(a)),
     { alwaysLoad: true },

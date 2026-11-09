@@ -63,12 +63,12 @@ function renderEntry(e: Entry, w: number): Rendered {
     }
     case "thinking": {
       const done = e.ms !== undefined;
-      const head = done
-        ? c.dim(`✻ Thought for ${secs(e.ms!)}`) + c.dim(e.open ? "  ▾" : "  ▸")
-        : `${c.accent(spinner())} ${c.accent("Thinking")} ${c.dim(secs(performance.now() - e.started))}`;
       const text = e.text.replace(/\s+\n/g, "\n").trim();
       const body = text ? wrap(c.italic(text.replace(/\s+/g, " ")), inner - 2).map((l) => c.dim(`  ${l}`)) : [];
-      const lines = [head, ...(done ? (e.open ? body : []) : body.slice(-3))];
+      // While thinking, the status line above the prompt carries the spinner and timer; here only the text streams.
+      if (!done) return { lines: body.slice(-3).map((l) => PAD + l), actions };
+      if (!text && e.ms! < 100) return { lines: [], actions }; // an empty block ("Thought for 0.0s") says nothing
+      const lines = [c.dim(`✻ Thought for ${secs(e.ms!)}`) + c.dim(e.open ? "  ▾" : "  ▸"), ...(e.open ? body : [])];
       if (done && text) actions.set(0, { toggle: () => (e.open = !e.open) });
       return { lines: lines.map((l) => PAD + l), actions };
     }
@@ -128,9 +128,6 @@ export class Transcript {
     const actions = new Map<number, LineAction>();
     let prev: Entry | undefined;
     for (const e of this.entries) {
-      for (let g = gap(prev, e); g > 0; g--) lines.push("");
-      // Every answer opens with a label, so it never reads as part of the prompt above it.
-      if (prev?.kind === "user" && e.kind !== "user") lines.push(REPLY_LABEL, "");
       let r: Rendered;
       const hit = this.cache.get(e);
       if (hit && hit.w === w && !this.live(e)) r = hit.r;
@@ -139,6 +136,10 @@ export class Transcript {
         // Only a settled render may be reused; one taken mid-stream or mid-run would go stale.
         if (!this.live(e)) this.cache.set(e, { w, r });
       }
+      if (!r.lines.length) continue; // e.g. thinking that has no text yet: no gap, no label
+      for (let g = gap(prev, e); g > 0; g--) lines.push("");
+      // Every answer opens with a label, so it never reads as part of the prompt above it.
+      if (prev?.kind === "user" && e.kind !== "user") lines.push(REPLY_LABEL, "");
       for (const [i, a] of r.actions) actions.set(lines.length + i, a);
       lines.push(...r.lines);
       prev = e;

@@ -3,7 +3,8 @@ import { fit, sliceCols, strip, width, wrap } from "./ansi.ts";
 import { Editor } from "./editor.ts";
 import { droppedImages } from "./images.ts";
 import { type InputEvent, KeyParser } from "./keys.ts";
-import { StreamMarkdown } from "./markdown.ts";
+import { fitColumns, StreamMarkdown } from "./markdown.ts";
+import { Transcript } from "./transcript.ts";
 
 const parse = (...chunks: string[]) => {
   const out: InputEvent[] = [];
@@ -71,6 +72,27 @@ test("markdown: lists, headings, tables", () => {
   expect(out.some((l) => /a\s+│ bb/.test(l))).toBe(true);
 });
 
+test("markdown: a table wider than the pane wraps inside its cells", () => {
+  const md = new StreamMarkdown(40);
+  md.push("| # | Experiment | Gain |\n|---|---|---|\n| 1 | **Pre-load the repo:** put the file tree in the first message | -1 turn |\n| 2 | Shorter final answer | 1-2s |\n");
+  md.end();
+  const out = md.take().map(strip);
+  expect(out.every((l) => width(l) <= 40)).toBe(true);
+  expect(out.some((l) => l.includes("|"))).toBe(false); // no raw markdown left
+  expect(out[0]).toMatch(/^# +│ Experiment +│ Gain/);
+  expect(out.filter((l) => /^1 +│ Pre-load/.test(l))).toHaveLength(1);
+  expect(out.some((l) => /^ +│ file tree in the first +│/.test(l))).toBe(true);
+  // Every row of a wrapped table keeps its column separators lined up.
+  const bars = out.filter((l) => l.includes("│")).map((l) => [...l].flatMap((ch, i) => (ch === "│" ? [i] : [])).join());
+  expect(new Set(bars).size).toBe(1);
+});
+
+test("markdown: fitColumns keeps narrow columns and gives up when nothing readable fits", () => {
+  expect(fitColumns([3, 10], 20)).toEqual([3, 10]);
+  expect(fitColumns([3, 50, 40], 40)).toEqual([3, 19, 18]);
+  expect(fitColumns([20, 20, 20, 20], 16)).toBeNull();
+});
+
 test("editor: insert, word delete, history, multi-line caret", () => {
   const e = new Editor();
   e.insert("hello world");
@@ -122,4 +144,23 @@ test("sliceCols and fit keep styles and exact widths", () => {
   expect(width(fit(s, 20))).toBe(20);
   expect(width(fit(s, 6))).toBe(6);
   expect(strip(sliceCols("日本語", 2, 4))).toBe("本");
+});
+
+test("live thinking leaves the spinner to the status line; done shows its time", () => {
+  const t = new Transcript();
+  t.add({ kind: "user", text: "hi", images: [] });
+  const before = t.layout(80).lines.length;
+  const e = t.add({ kind: "thinking", text: "", started: performance.now(), open: false }) as Extract<ReturnType<Transcript["add"]>, { kind: "thinking" }>;
+  expect(t.layout(80).lines.length).toBe(before); // nothing yet: no header, no gap, no label
+  e.text = "checking the cap";
+  const live = t.layout(80).lines.map(strip);
+  expect(live.some((l) => l.includes("checking the cap"))).toBe(true);
+  expect(live.some((l) => l.includes("Thinking"))).toBe(false);
+  e.ms = 1200;
+  expect(t.layout(80).lines.map(strip).some((l) => l.includes("Thought for 1.2s"))).toBe(true);
+  // An empty, instant block is hidden; an empty but long one still shows its time.
+  t.add({ kind: "thinking", text: "", started: 0, ms: 20, open: false });
+  expect(t.layout(80).lines.map(strip).some((l) => l.includes("0.0s"))).toBe(false);
+  t.add({ kind: "thinking", text: "", started: 0, ms: 3000, open: false });
+  expect(t.layout(80).lines.map(strip).some((l) => l.includes("Thought for 3.0s"))).toBe(true);
 });

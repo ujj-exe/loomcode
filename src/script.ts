@@ -30,8 +30,8 @@ export function runScript(code: string, impl: Impl, timeoutS: number): Promise<T
           r = { text: String(e), isError: true };
         }
         // Scripts get clean data; a failure throws with the full rendering (output + exit status).
-        if (r.cut) out.push(`[${data.name}: ${r.note}]`);
-        worker.postMessage({ type: "result", id: data.id, isError: r.isError, text: r.isError ? render(r) : r.text });
+        if (r.cut && r.raw === undefined) out.push(`[${data.name}: ${r.note}]`);
+        worker.postMessage({ type: "result", id: data.id, isError: r.isError, text: r.isError ? render(r) : (r.raw ?? r.text) });
       } else if (data.type === "done") {
         if (data.error) finish(`error: ${data.error}`, true);
         else finish(data.value === undefined ? "" : `return: ${data.value}`, false);

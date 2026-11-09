@@ -74,13 +74,41 @@ test("concurrent edits to one file both land", async () => {
   expect(await Bun.file(join(dir, "c.txt")).text()).toBe("A\nB\n");
 });
 
-test("shell keeps the tail, interleaves stderr, and spills the full output", async () => {
+test("shell keeps head and tail, interleaves stderr, and spills the full output", async () => {
   const r = await impl.shell({ command: "seq 1 5000; echo boom >&2; exit 3" });
   expect(r.isError).toBe(true);
+  expect(r.text).toStartWith("1\n2\n3\n");
+  expect(r.text).toContain("\n100\n… [lines 101-4801 omitted] …\n4802\n");
   expect(r.text).toEndWith("4999\n5000\nboom");
+  expect(render(r)).toContain("[lines 101-4801 of 5001 omitted; full output: ");
   expect(render(r)).toEndWith("]\n[exit 3]");
-  const path = render(r).match(/full output: (\S+)\]/)![1]!;
+  const path = render(r).match(/full output: (\S+) /)![1]!;
   expect((await Bun.file(path).text()).split("\n")).toHaveLength(5001);
+});
+
+test("shell output within budget is untouched", async () => {
+  const r = await impl.shell({ command: "seq 1 300" });
+  expect(r.text.split("\n")).toHaveLength(300);
+  expect(render(r)).toEndWith("300\n[exit 0]");
+});
+
+test("shell clips long lines but the spill keeps them whole", async () => {
+  const r = await impl.shell({ command: "printf 'a%.0s' {1..2000}; echo; echo end" });
+  expect(r.text).toBe(`${"a".repeat(500)}… [+1500 chars]\nend`);
+  expect(render(r)).toContain("[1 long line clipped; full output: ");
+  const path = render(r).match(/full output: (\S+) /)![1]!;
+  expect(await Bun.file(path).text()).toBe(`${"a".repeat(2000)}\nend`);
+});
+
+test("shell keeps a byte budget even when every line is long", async () => {
+  const r = await impl.shell({ command: "for i in {1..1000}; do printf 'x%.0s' {1..400}; echo; done" });
+  expect(Buffer.byteLength(r.text)).toBeLessThan(17 * 1024);
+  expect(r.text).toContain("omitted]");
+});
+
+test("shell leaves an unmatched glob as is instead of aborting the command", async () => {
+  const r = await impl.shell({ command: "ls nope-*/* 2>/dev/null; echo after" });
+  expect(r.text).toContain("after");
 });
 
 test("shell timeout is reported", async () => {
@@ -95,6 +123,20 @@ test("read caps big files and says where to continue", async () => {
   expect(r.text).not.toContain("offset=");
   expect(render(r)).toContain("continue with offset=2001");
   expect((await impl.read({ path: "big.txt", offset: 2999 })).text).toBe("2999\tline 2999\n3000\tline 3000");
+});
+
+test("read pages past a line bigger than the whole budget", async () => {
+  await Bun.write(join(dir, "min.js"), `${"x".repeat(200_000)}\nsecond`);
+  const r = await impl.read({ path: "min.js" });
+  expect(r.text).toMatch(/^1\tx+… \[line cut: 200002 chars\]$/);
+  expect(render(r)).toContain("continue with offset=2");
+  expect((await impl.read({ path: "min.js", offset: 2 })).text).toBe("2\tsecond");
+});
+
+test("scripts get shell output uncut", async () => {
+  const r = await runScript(`return (await tools.shell({ command: "seq 1 5000" })).split("\\n").length`, impl, 30);
+  expect(r.text).toContain("return: 5000");
+  expect(r.text).not.toContain("omitted");
 });
 
 test("script batches tool calls and returns only what it prints", async () => {
@@ -145,4 +187,15 @@ test("scripts are told when a tool result was cut", async () => {
   const r = await runScript(`const t = await tools.read({ path: "big.txt" }); return t.split("\\n").length`, impl, 30);
   expect(r.text).toContain("[read: [showed lines 1-2000 of 3000; continue with offset=2001]]");
   expect(r.text).toContain("return: 2000");
+});
+
+test("the prompt lists project files, capped, and skips an empty project", async () => {
+  const { fileList } = await import("./prompt.ts");
+  const d = mkdtempSync(join(tmpdir(), "loom-files-"));
+  expect(fileList(d)).toBeNull();
+  for (let i = 0; i < 160; i++) await Bun.write(join(d, `f${String(i).padStart(3, "0")}.txt`), "");
+  const l = fileList(d)!;
+  expect(l).toContain("f000.txt");
+  expect(l).not.toContain("f150.txt");
+  expect(l).toContain("… 10 more (use search)");
 });

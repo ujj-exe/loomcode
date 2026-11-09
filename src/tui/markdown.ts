@@ -67,14 +67,36 @@ function table(lines: string[], cols: number): string[] {
     .map((l) => l.trim().replace(/^\||\|$/g, "").split("|").map((x) => x.trim()))
     .filter((r) => !r.every((x) => /^:?-{2,}:?$/.test(x)));
   const n = Math.max(...rows.map((r) => r.length));
-  const widths = Array.from({ length: n }, (_, i) => Math.max(...rows.map((r) => width(inline(r[i] ?? "")))));
-  const total = widths.reduce((a, b) => a + b, 0) + (n - 1) * 3;
-  if (total > cols) return lines.flatMap((l) => wrap(l, cols)); // too wide to align: show as written
+  const cells = rows.map((r) => Array.from({ length: n }, (_, j) => inline(r[j] ?? "")));
+  const natural = Array.from({ length: n }, (_, j) => Math.max(...cells.map((r) => width(r[j]!))));
+  const widths = fitColumns(natural, cols - (n - 1) * 3);
+  if (!widths) return lines.flatMap((l) => wrap(l, cols)); // too many columns to fit: show as written
+  const wraps = widths.some((w, j) => w < natural[j]!);
   const sep = c.muted(" │ ");
-  return rows.flatMap((r, i) => {
-    const line = widths.map((w, j) => { const cell = inline(r[j] ?? ""); return cell + " ".repeat(w - width(cell)); }).join(sep);
-    return i === 0 ? [c.bold(line), c.muted(widths.map((w) => "─".repeat(w)).join("─┼─"))] : [line];
+  const rule = c.muted(widths.map((w) => "─".repeat(w)).join("─┼─"));
+  return cells.flatMap((r, i) => {
+    // Each cell wraps inside its column; the row is as tall as its tallest cell.
+    const parts = r.map((cell, j) => wrap(cell, widths[j]!));
+    const h = Math.max(...parts.map((p) => p.length));
+    const out = Array.from({ length: h }, (_, k) => parts.map((p, j) => (p[k] ?? "") + " ".repeat(Math.max(0, widths[j]! - width(p[k] ?? "")))).join(sep));
+    if (i === 0) return [...out.map(c.bold), rule];
+    return wraps && i < cells.length - 1 ? [...out, rule] : out; // rules keep wrapped rows apart
   });
+}
+
+// Column widths that fit `avail`: narrow columns keep their width, wide ones share what is left evenly.
+// Null when a column would get too narrow to read.
+const MIN_COL = 6;
+export function fitColumns(natural: number[], avail: number): number[] | null {
+  if (natural.reduce((a, b) => a + b, 0) <= avail) return natural;
+  const w = [...natural];
+  let left = avail;
+  let rest = natural.length;
+  for (const j of natural.map((_, j) => j).sort((a, b) => natural[a]! - natural[b]!)) {
+    w[j] = Math.min(natural[j]!, Math.floor(left / rest--));
+    left -= w[j]!;
+  }
+  return w.some((x, j) => x < Math.min(MIN_COL, natural[j]!)) ? null : w;
 }
 
 // Streams markdown: finished blocks come out of take() once (for scrollback); the unfinished tail is

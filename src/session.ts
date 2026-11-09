@@ -42,7 +42,9 @@ async function userMcpServers(cwd: string): Promise<Record<string, McpServerConf
 // One long-lived claude process driven by a prompt stream: only the first turn pays startup, and model and
 // effort switch in place. The user's own unmodified claude binary signs in with their own login.
 export async function openSession(opts: SessionOptions) {
-  const claude = Bun.which("claude");
+  // Skip Loom.app's claude shim (~/.loom/bin): it adds its browser MCP (~25 tool definitions) and a hook process per event.
+  const shim = join(homedir(), ".loom", "bin");
+  const claude = Bun.which("claude", { PATH: (process.env.PATH ?? "").split(":").filter((d) => d !== shim).join(":") });
   if (!claude) throw new Error("claude not found on PATH — install Claude Code and sign in first");
 
   const pending: SDKUserMessage[] = [];

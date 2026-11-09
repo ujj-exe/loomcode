@@ -24,7 +24,7 @@ It replaces Claude Code's built-in tools with five lean ones and adds a hand-wri
 
 ## Requirements
 
-- [Bun](https://bun.sh) ≥ 1.4
+- [Bun](https://bun.sh) ≥ 1.3
 - [ripgrep](https://github.com/BurntSushi/ripgrep) (`brew install ripgrep`)
 - One of these for auth:
   - a Claude login (`claude` CLI)
@@ -96,5 +96,5 @@ src/
 
 ```sh
 bun test     # tools + TUI tests
-bun check    # type check
+bunx tsc --noEmit   # type check
 ```
