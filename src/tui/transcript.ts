@@ -49,7 +49,9 @@ function renderEntry(e: Entry, w: number): Rendered {
       // A card: tinted band with an accent bar and a row of padding above and below.
       const body = e.text.length > 4000 ? `${e.text.slice(0, 4000)}…` : e.text;
       const lines = body.split("\n").flatMap((l) => wrap(c.user(l) || " ", inner - 2));
-      const bar = c.accent("▌");
+      // A tinted cell, not a "▌" glyph: backgrounds fill the whole line height, so the bar stays unbroken
+      // in terminals that add line spacing (Terminal.app, iTerm), where block glyphs leave gaps between rows.
+      const bar = `\x1b[48;2;212;163;115m \x1b[49m${USER_BG_ON}`;
       const row = (s: string) => ` ${band(`${bar} ${s}`, w - 2)}`;
       const out = [row(""), ...lines.map((l) => row(l))];
       for (const img of e.images) out.push(row(c.dim(`▣ ${img.name}  ${img.w}×${img.h}`)));
