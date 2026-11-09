@@ -1,0 +1,9 @@
+task,difficulty,harness,solved,cost_usd,wall_s,tokens,output_tokens,turns
+"hono-5510","hard","Claude Code",1,0.5349,96,557997,6317,12
+"hono-5510","hard","loomcode",0,0.1885,63,70827,4008,7
+"hono-5608","easy","Claude Code",1,0.472,88,671774,4503,14
+"hono-5608","easy","loomcode",1,0.0729,38,31339,1220,8
+"yaml-700","medium","Claude Code",1,1.0886,196,1917568,12323,31
+"yaml-700","medium","loomcode",1,0.1978,67,99094,3726,12
+"zod-6740","hard","Claude Code",1,0.7226,169,1093816,5269,19
+"zod-6740","hard","loomcode",1,0.3739,146,358530,3200,14

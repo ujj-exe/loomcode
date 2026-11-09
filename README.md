@@ -22,6 +22,28 @@ It replaces Claude Code's built-in tools with five lean ones and adds a hand-wri
 - **Compaction** with checkpoints saved to disk, so long sessions keep going.
 - **Plain and JSON modes** for scripts and benchmarks.
 
+## Benchmarks
+
+<img src="docs/bench/cost.svg" alt="Cost per fix, loomcode and Claude Code" width="760">
+
+| | loomcode | Claude Code | |
+|---|---:|---:|---|
+| Total cost | $0.83 | $2.82 | **3.4× cheaper** |
+| Tokens processed | 560k | 4.24M | **7.6× fewer** |
+| Wall time | 5.2 min | 9.2 min | **1.7× faster** |
+| Cost per solved task | $0.28 | $0.70 | **2.5× cheaper** |
+| Tests passed | 3 / 4 | 4 / 4 | |
+
+Four real bug-fix pull requests, merged in [hono](https://github.com/honojs/hono), [yaml](https://github.com/eemeli/yaml)
+and [zod](https://github.com/colinhacks/zod) after the model's training cutoff. The agent gets only the issue text in a
+fresh checkout, and the pull request's own tests decide pass or fail. Both harnesses ran Claude Opus 5.5 at the same
+effort setting, one run per task (November 8, 2026).
+
+loomcode solved 3 of 4 (it missed an edge case in hono-5510) and Claude Code solved 4 of 4. Counting that miss, each
+solved task still cost 2.5× less. With four tasks and one run each, treat these as early numbers.
+
+Raw numbers: [docs/bench/runs.csv](docs/bench/runs.csv). `bun scripts/bench-charts.ts` redraws the chart and prints this table.
+
 ## Requirements
 
 - [Bun](https://bun.sh) ≥ 1.3
