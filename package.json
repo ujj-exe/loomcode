@@ -1,0 +1,19 @@
+{
+  "name": "loom-harness",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "code": "bun src/cli.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.309",
+    "@anthropic-ai/sdk": "^1.6.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@speed-highlight/core": "^2.1.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "5"
+  }
+}
