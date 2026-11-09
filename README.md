@@ -42,7 +42,7 @@ effort setting, one run per task (November 8, 2026).
 loomcode solved 3 of 4 (it missed an edge case in hono-5510) and Claude Code solved 4 of 4. Counting that miss, each
 solved task still cost 2.5× less. With four tasks and one run each, treat these as early numbers.
 
-Raw numbers: [docs/bench/runs.csv](docs/bench/runs.csv). `bun scripts/bench-charts.ts` redraws the chart and prints this table.
+Raw numbers: [docs/bench/runs.csv](docs/bench/runs.csv).
 
 ## Requirements
 
