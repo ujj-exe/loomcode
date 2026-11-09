@@ -85,7 +85,7 @@ Uninstall:
 
 ```sh
 bun remove -g loomcode                     # or `bun unlink` in the clone
-rm -f ~/.loom/code.json ~/.loom/tui.json   # settings; leave the rest of ~/.loom (Loom.app uses it)
+rm -f ~/.loom/settings.json                # settings; leave the rest of ~/.loom (Loom.app uses it)
 security delete-generic-password -s loomcode -a exa   # web search key, if saved (account: exa, firecrawl or context)
 ```
 
@@ -103,13 +103,44 @@ Options:
 
 | Flag | |
 |---|---|
-| `--model <id>` | model to use |
-| `--effort low\|medium\|high\|xhigh\|max` | thinking effort (default `medium`) |
+| `--model <id>` | model to use (overrides settings) |
+| `--effort low\|medium\|high\|xhigh\|max` | thinking effort (overrides settings; default `medium`) |
 | `--plain` | no TUI, even in a terminal |
 | `--json` | also print the final result message as JSON (stderr) |
 | `-v, --verbose` | print every SDK message in plain mode |
 | `--setup` | check Claude Code and choose a web search provider |
 | `--update` | update to the latest version on GitHub |
+
+### Settings
+
+`~/.loom/settings.json`, created by setup. A project's `.loom/settings.json` overrides it key by key, and flags
+override both. Every key is optional:
+
+```json
+{
+  "model": "claude-opus-5-5",
+  "effort": "medium",
+  "autoCompact": { "enabled": true, "atTokens": 150000 },
+  "provider": "anthropic",
+  "webSearch": "exa",
+  "filesDrawer": true,
+  "connectors": false
+}
+```
+
+| Key | |
+|---|---|
+| `model` | default model; unset uses Claude Code's default |
+| `effort` | `low`, `medium`, `high`, `xhigh` or `max` |
+| `autoCompact` | compact once the context passes `atTokens` (never past 95% of the window); `enabled: false` turns it off |
+| `provider` | where Claude runs: `anthropic`, `bedrock` or `vertex` (uses that cloud's own credentials) |
+| `webSearch` | `exa`, `firecrawl`, `context` or `null`; the API key stays in the keychain, set it with `loomcode --setup` |
+| `filesDrawer` | open the files drawer at start |
+| `connectors` | load your claude.ai connectors (~30k tokens of tool definitions) |
+
+Settings are read once at startup and never change the system prompt, so they cost nothing per turn. `/model`,
+`/effort`, the drawer and `/mcp` connector choices are saved back to `~/.loom/settings.json`. A bad value is
+reported once and its default used.
 
 ### In the TUI
 

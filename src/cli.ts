@@ -7,7 +7,7 @@ const { values: opts, positionals } = parseArgs({
   allowPositionals: true,
   options: {
     model: { type: "string" },
-    effort: { type: "string", default: "medium" },
+    effort: { type: "string" },
     verbose: { type: "boolean", short: "v" },
     json: { type: "boolean" },
     plain: { type: "boolean" },
@@ -19,28 +19,47 @@ const { values: opts, positionals } = parseArgs({
 if (opts.update) process.exit((await (await import("./update.ts")).update()) ? 0 : 1);
 
 const cwd = process.cwd();
-const effort = opts.effort as Effort;
 const oneShot = positionals.length > 0;
+const { EFFORT_LEVELS, loadSettings } = await import("./settings.ts");
+if (opts.effort && !(EFFORT_LEVELS as readonly string[]).includes(opts.effort)) {
+  console.error(`--effort must be one of: ${EFFORT_LEVELS.join(", ")}`);
+  process.exit(2);
+}
 
 const interactive = !oneShot && !opts.json && !opts.plain && process.stdin.isTTY && process.stdout.isTTY;
+let loaded = await loadSettings(cwd);
 // Onboarding: on request, or on the first interactive run.
-if (opts.setup || (interactive && !(await (await import("./web.ts")).loadConfig()))) {
+if (opts.setup || (interactive && !loaded.configured)) {
   const ok = await (await import("./setup.ts")).setup();
   if (!ok || opts.setup) process.exit(ok ? 0 : 1);
+  loaded = await loadSettings(cwd);
 }
+// Flags win over the settings files.
+const { settings, warnings } = loaded;
+const effort = (opts.effort ?? settings.effort) as Effort;
+const model = opts.model ?? settings.model;
 
 // An interactive terminal gets the TUI; prompts on the command line, pipes and --json stay plain (benchmarks use these).
 if (interactive) {
   const { runTui } = await import("./tui/app.ts");
-  await runTui({ cwd, model: opts.model, effort });
+  await runTui({ cwd, model, effort, settings, warnings });
 } else {
+  for (const w of warnings) console.error(`\x1b[2msettings: ${w}\x1b[0m`);
   await runPlain();
 }
 
 async function runPlain() {
   const { openSession } = await import("./session.ts");
   const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
-  const session = await openSession({ cwd, model: opts.model, effort, onCheckpoint: (p) => console.log(dim(`[checkpoint saved: ${p}]`)) });
+  const session = await openSession({
+    cwd,
+    model,
+    effort,
+    autoCompact: settings.autoCompact,
+    provider: settings.provider,
+    webSearch: settings.webSearch,
+    onCheckpoint: (p) => console.log(dim(`[checkpoint saved: ${p}]`)),
+  });
 
   let sent = 0;
   const { expandSkill, loadSkills } = await import("./skills.ts");

@@ -1,10 +1,11 @@
 import { type CanUseTool, type McpServerConfig, query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { COMPACT_INSTRUCTIONS, compactAt, saveSummary } from "./compact.ts";
+import { COMPACT_INSTRUCTIONS, saveSummary } from "./compact.ts";
 import { systemPrompt } from "./prompt.ts";
 import { loomTools, TOOL_NAMES } from "./tools.ts";
-import { webAccess } from "./web.ts";
+import { compactThreshold, DEFAULTS, providerEnv, type Settings } from "./settings.ts";
+import { type Provider, webAccess } from "./web.ts";
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 export const EFFORTS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
@@ -23,6 +24,9 @@ export type SessionOptions = {
   resume?: string; // session id to continue (switching integrations restarts claude mid-conversation)
   approve?: Approve;
   onCheckpoint?: (path: string) => void;
+  autoCompact?: Settings["autoCompact"];
+  provider?: Settings["provider"];
+  webSearch?: Provider | null;
 };
 
 // MCP servers the user configured for Claude Code: user scope and this project's local scope in
@@ -68,6 +72,11 @@ export async function openSession(opts: SessionOptions) {
     wake?.();
   };
 
+  const env = {
+    ...providerEnv(opts.provider ?? DEFAULTS.provider),
+    ...(opts.integrations && !opts.connectors && { ENABLE_CLAUDEAI_MCP_SERVERS: "false" }),
+  };
+  const compactAt = (window: number) => compactThreshold(opts.autoCompact ?? DEFAULTS.autoCompact, window);
   const q = query({
     prompt: prompts(),
     options: {
@@ -75,12 +84,12 @@ export async function openSession(opts: SessionOptions) {
       pathToClaudeCodeExecutable: claude,
       systemPrompt: { type: "custom", prompt: await systemPrompt(opts.cwd) },
       tools: opts.integrations ? ["ToolSearch"] : [],
-      mcpServers: { ...(opts.integrations ? await userMcpServers(opts.cwd) : {}), loom: loomTools(opts.cwd, await webAccess()) },
+      mcpServers: { ...(opts.integrations ? await userMcpServers(opts.cwd) : {}), loom: loomTools(opts.cwd, await webAccess(opts.webSearch)) },
       strictMcpConfig: !opts.integrations,
       // With an approver, loom's own tools are allowed inside it; listing them here too would bypass the callback.
       ...(opts.approve ? { canUseTool: approver(opts.approve) } : { allowedTools: TOOL_NAMES }),
       ...(opts.integrations && { extraArgs: { chrome: null } }),
-      ...(opts.integrations && !opts.connectors && { env: { ...process.env, ENABLE_CLAUDEAI_MCP_SERVERS: "false" } }),
+      ...(Object.keys(env).length && { env: { ...process.env, ...env } }),
       ...(opts.resume && { resume: opts.resume }),
       settingSources: [],
       includePartialMessages: true,

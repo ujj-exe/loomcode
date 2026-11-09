@@ -1,5 +1,6 @@
 import { findClaude } from "./session.ts";
-import { type Config, loadConfig, type Provider, PROVIDERS, saveConfig, saveKey } from "./web.ts";
+import { loadSettings, saveSettings, userFile } from "./settings.ts";
+import { type Provider, PROVIDERS, saveKey } from "./web.ts";
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const good = (s: string) => `\x1b[32m${s}\x1b[0m`;
@@ -62,15 +63,15 @@ async function checkClaude(): Promise<boolean> {
   return true;
 }
 
-async function chooseWeb(current: Config | null): Promise<Provider | null> {
+async function chooseWeb(current: Provider | null): Promise<Provider | null> {
   const ids = Object.keys(PROVIDERS) as Provider[];
   out(`\nWeb search ${dim("(optional)")} — loomcode can't search the web unless you pick a provider:`);
   ids.forEach((id, i) => out(`  ${i + 1}  ${PROVIDERS[id].label.padEnd(12)}${dim(PROVIDERS[id].keys)}`));
-  const keep = current?.web ? `, or k to keep ${PROVIDERS[current.web].label}` : "";
+  const keep = current ? `, or k to keep ${PROVIDERS[current].label}` : "";
   while (true) {
     const a = (await ask(`Pick 1-${ids.length}, Enter to skip${keep}: `)).toLowerCase();
     if (!a) return null;
-    if (a === "k" && current?.web) return current.web;
+    if (a === "k" && current) return current;
     const p = ids[Number(a) - 1];
     if (!p) continue;
     const api = PROVIDERS[p];
@@ -92,7 +93,7 @@ async function chooseWeb(current: Config | null): Promise<Provider | null> {
   }
 }
 
-// First run (no ~/.loom/code.json) or `loomcode --setup`. Returns false when loomcode can't run yet.
+// First run (no ~/.loom/settings.json) or `loomcode --setup`. Returns false when loomcode can't run yet.
 export async function setup(): Promise<boolean> {
   if (!process.stdin.isTTY) {
     out("loomcode --setup needs an interactive terminal.");
@@ -100,10 +101,14 @@ export async function setup(): Promise<boolean> {
   }
   out(`\n\x1b[1mloomcode setup\x1b[0m\n`);
   if (!(await checkClaude())) return false;
-  const current = await loadConfig();
-  const web = await chooseWeb(current);
-  await saveConfig({ ...current, web });
+  const { settings } = await loadSettings(process.cwd());
+  const web = await chooseWeb(settings.webSearch);
+  if (!(await saveSettings({ webSearch: web }))) {
+    out(`${bad("✗")} ${userFile()} isn't valid JSON, so the choice wasn't saved. Fix or delete it, then run loomcode --setup.`);
+    return false;
+  }
   out(web ? `\nWeb search: ${PROVIDERS[web].label}.` : `\nNo web search. Run ${dim("loomcode --setup")} any time to add it.`);
+  out(dim(`Settings (model, effort, auto-compact…): ${userFile()}`));
   out("");
   return true;
 }

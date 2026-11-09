@@ -14,10 +14,6 @@ export const COMPACT_INSTRUCTIONS = `Write a checkpoint another agent will conti
 ## Next — ordered steps
 ## Facts — anything else needed to continue (values, outputs, test names); "(none)" if nothing`;
 
-// Compact before a new prompt once the context passes this many tokens. Every turn re-reads the whole
-// context, so a bounded context bounds per-turn cost, not just the window.
-export const compactAt = (window: number) => Math.min(Math.floor(window * 0.75), 150_000);
-
 export async function saveSummary(sessionId: string, summary: string): Promise<string> {
   const dir = join(homedir(), ".loom", "sessions", sessionId);
   await mkdir(dir, { recursive: true });

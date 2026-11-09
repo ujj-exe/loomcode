@@ -1,8 +1,6 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 
 // Web search and page reading through the provider the user picked in setup. The API key lives in the
-// system keychain (macOS Keychain via Bun.secrets), never in a file; the choice lives in ~/.loom/code.json.
+// system keychain (macOS Keychain via Bun.secrets), never in a file; the choice lives in settings (webSearch).
 export type Provider = "exa" | "firecrawl" | "context";
 export type Hit = { title: string; url: string; text: string };
 type Api = {
@@ -65,20 +63,8 @@ const SERVICE = "loomcode";
 export const getKey = (p: Provider) => Bun.secrets.get({ service: SERVICE, name: p });
 export const saveKey = (p: Provider, value: string) => Bun.secrets.set({ service: SERVICE, name: p, value });
 
-export type Config = { web: Provider | null };
-export const CONFIG = join(homedir(), ".loom", "code.json");
-export async function loadConfig(): Promise<Config | null> {
-  try {
-    return await Bun.file(CONFIG).json();
-  } catch {
-    return null; // not set up yet
-  }
-}
-export const saveConfig = (c: Config) => Bun.write(CONFIG, JSON.stringify(c, null, 2) + "\n");
-
-// The configured provider with its key, or null when web access is off or the key is gone from the keychain.
-export async function webAccess(): Promise<{ provider: Provider; key: string } | null> {
-  const p = (await loadConfig())?.web;
+// The chosen provider (settings' webSearch) with its key, or null when web access is off or the key is gone.
+export async function webAccess(p: Provider | null | undefined): Promise<{ provider: Provider; key: string } | null> {
   if (!p || !PROVIDERS[p]) return null;
   const key = await getKey(p).catch(() => null);
   return key ? { provider: p, key } : null;

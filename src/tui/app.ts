@@ -11,6 +11,7 @@ import { clipboardImage, copyText, droppedImages, loadImage } from "./images.ts"
 import { type InputEvent, type Key, KeyParser, type Mouse } from "./keys.ts";
 import { StreamMarkdown } from "./markdown.ts";
 import { Screen } from "./screen.ts";
+import { saveSettings, type Settings } from "../settings.ts";
 import { expandSkill, loadSkills, type Skill } from "../skills.ts";
 import { revertFile } from "../tools.ts";
 import { type Entry, measure, secs, spinner, type Tool, Transcript } from "./transcript.ts";
@@ -84,19 +85,6 @@ function editDiff(input: any, result: string): string[] {
   return out;
 }
 
-const PREFS = join(homedir(), ".loom", "tui.json");
-type Prefs = { drawer?: boolean; connectors?: boolean };
-async function loadPrefs(): Promise<Prefs> {
-  try {
-    return await Bun.file(PREFS).json();
-  } catch {
-    return {};
-  }
-}
-async function savePrefs(p: Prefs) {
-  await mkdir(join(homedir(), ".loom"), { recursive: true }).catch(() => {});
-  await Bun.write(PREFS, JSON.stringify(p));
-}
 
 async function gitBranch(cwd: string) {
   const p = Bun.spawn(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd, stdout: "pipe", stderr: "ignore" });
@@ -104,7 +92,7 @@ async function gitBranch(cwd: string) {
   return (await p.exited) === 0 ? out : "";
 }
 
-export async function runTui(opts: { cwd: string; model?: string; effort: Effort }) {
+export async function runTui(opts: { cwd: string; model?: string; effort: Effort; settings: Settings; warnings: string[] }) {
   const screen = new Screen();
   const editor = new Editor();
   const transcript = new Transcript();
@@ -140,7 +128,13 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
   const alwaysAllow = new Set<string>();
   let palette: { filter: string; index: number } | null = null;
   let headerToggle = { from: 0, to: 0 }; // columns of the files toggle in the header
-  let prefs: Prefs = {};
+  const settings = opts.settings;
+  // Choices made here (/model, /effort, the drawer, connectors) are saved to ~/.loom/settings.json.
+  let saveWarned = false;
+  const remember = (patch: Partial<Settings>) =>
+    saveSettings(patch).then((ok) => {
+      if (!ok && !saveWarned) (saveWarned = true), say("~/.loom/settings.json isn't valid JSON, so changes aren't saved", 6000);
+    });
   let servers: { name: string; status: string }[] = [];
   // View state: scroll is lines up from the bottom (0 follows the stream).
   let scroll = 0;
@@ -542,7 +536,10 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
       effort,
       showThinking: true,
       integrations: true,
-      connectors: !!prefs.connectors,
+      connectors: settings.connectors,
+      autoCompact: settings.autoCompact,
+      provider: settings.provider,
+      webSearch: settings.webSearch,
       resume,
       approve,
       onCheckpoint: (p) => (transcript.add({ kind: "note", text: `⟲ checkpoint saved to ${p}` }), draw()),
@@ -639,7 +636,7 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
         toggleDrawer();
         return true;
       case "/mcp": {
-        const on = !!prefs.connectors;
+        const on = settings.connectors;
         const status = servers.map((x) => `${x.name.replace(/^claude\.ai /, "")} ${x.status === "connected" ? "●" : x.status === "needs-auth" ? "○ needs auth" : "◌"}`).join("  ");
         picker = {
           title: `MCP · ${servers.length} servers   ${status ? c.dim(clipStatus(status)) : ""}`,
@@ -650,10 +647,10 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
           index: 0,
           pick: (v) => {
             if (v !== "toggle") return;
-            prefs.connectors = !on;
-            savePrefs(prefs).catch(() => {});
+            settings.connectors = !on;
+            remember({ connectors: settings.connectors });
             restartSession();
-            say(`claude.ai connectors ${prefs.connectors ? "on" : "off"}`);
+            say(`claude.ai connectors ${settings.connectors ? "on" : "off"}`);
           },
         };
         return true;
@@ -718,12 +715,14 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
       if (!efforts.includes(effort)) setEffort(efforts.includes("medium") ? "medium" : efforts[0]!);
     }
     session?.setModel(v).catch(() => say("model switch failed"));
+    remember({ model: v });
     say(`model → ${modelLabel}`);
   }
 
   function setEffort(e: Effort) {
     effort = e;
     session?.setEffort(e).catch(() => say("effort change failed"));
+    remember({ effort: e });
     say(`effort → ${e}`);
   }
 
@@ -796,8 +795,7 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
 
   function toggleDrawer() {
     drawer.open = !drawer.open;
-    prefs.drawer = drawer.open;
-    savePrefs(prefs).catch(() => {});
+    remember({ filesDrawer: drawer.open });
     draw();
   }
 
@@ -1011,8 +1009,8 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
     console.error(e);
     process.exit(1);
   });
-  prefs = await loadPrefs();
-  drawer.open = prefs.drawer ?? true;
+  drawer.open = settings.filesDrawer;
+  for (const w of opts.warnings) transcript.add({ kind: "note", text: `settings: ${w}` });
   // Anything printed directly would tear the frame; library warnings go to a log instead.
   const log = join(homedir(), ".loom", "tui.log");
   await mkdir(join(homedir(), ".loom"), { recursive: true }).catch(() => {});
