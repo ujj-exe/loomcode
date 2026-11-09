@@ -6,13 +6,14 @@ import { isAbsolute, join, resolve } from "node:path";
 import { z } from "zod";
 import { applyEdits, type Edit } from "./edit.ts";
 import { runScript } from "./script.ts";
+import { formatHits, PROVIDERS, type Provider } from "./web.ts";
 
 // Output caps from pi: whichever limit hits first wins.
 export const MAX_LINES = 2000;
 export const MAX_BYTES = 50 * 1024;
 const MAX_LINE_CHARS = 500;
 
-export const TOOL_NAMES = ["read", "search", "edit", "shell", "script"].map((n) => `mcp__loom__${n}`);
+export const TOOL_NAMES = ["read", "search", "edit", "shell", "script", "web_search", "web_fetch"].map((n) => `mcp__loom__${n}`);
 
 // `text` is the data (what a script gets back); `note` is harness commentary — truncation, exit status — that
 // the model sees but scripts never parse. `cut` marks notes that scripts must still be told about.
@@ -173,7 +174,36 @@ export function loomImpl(cwd: string) {
 export const render = (r: ToolResult) => [r.text, r.note].filter(Boolean).join("\n") || "(no output)";
 const mcp = (r: ToolResult) => ({ content: [{ type: "text" as const, text: render(r) }], isError: r.isError });
 
-export function loomTools(cwd: string) {
+// Web pages are capped like files; the whole page goes to a file the model can page through.
+export async function webPage(text: string): Promise<ToolResult> {
+  const c = cap(text, "head");
+  if (!c) return ok(text || "(empty page)");
+  return ok(c.text, `[showing lines 1-${c.shown} of ${c.total}; full page: ${await spill(text)} (read it with offset/limit)]`);
+}
+
+// Web tools exist only when the user set up a provider, so they cost no prompt tokens otherwise.
+function webTools(web: { provider: Provider; key: string }) {
+  const api = PROVIDERS[web.provider];
+  const run = async (f: () => Promise<ToolResult>) => mcp(await f().catch((e) => fail(String(e?.message ?? e))));
+  return [
+    tool(
+      "web_search",
+      `Search the web (${api.label}). Returns titles, URLs and relevant passages; read a page with web_fetch.`,
+      { query: z.string(), num_results: z.number().int().min(1).max(20).optional() },
+      ({ query, num_results = 5 }) => run(async () => ok(formatHits(await api.search(query, num_results, web.key)))),
+      { alwaysLoad: true },
+    ),
+    tool(
+      "web_fetch",
+      "Read a web page as markdown. Long pages show their start and save the whole page to a file.",
+      { url: z.string().url() },
+      ({ url }) => run(async () => webPage(await api.fetch(url, web.key))),
+      { alwaysLoad: true },
+    ),
+  ];
+}
+
+export function loomTools(cwd: string, web?: { provider: Provider; key: string } | null) {
   const impl = loomImpl(cwd);
   const read = tool(
     "read",
@@ -215,5 +245,5 @@ export function loomTools(cwd: string) {
     async ({ code, timeout_s = 120 }) => mcp(await runScript(code, impl, timeout_s)),
     { alwaysLoad: true },
   );
-  return createSdkMcpServer({ name: "loom", version: "0.2.0", tools: [read, search, edit, shell, script] });
+  return createSdkMcpServer({ name: "loom", version: "0.2.0", tools: [read, search, edit, shell, script, ...(web ? webTools(web) : [])] });
 }

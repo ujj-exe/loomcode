@@ -31,14 +31,28 @@ It replaces Claude Code's built-in tools with five lean ones and adds a hand-wri
   - `ANTHROPIC_API_KEY`
 - macOS or Linux. Image paste uses macOS `sips`.
 
+## Install
+
+```sh
+bun add -g github:ujj-exe/loomcode   # puts `loomcode` on your PATH
+loomcode                             # first run walks you through setup
+```
+
+Setup checks that Claude Code is installed and signed in (loomcode runs on that login), then offers web
+search through [Exa](https://exa.ai), [Firecrawl](https://firecrawl.dev) or [Context.dev](https://context.dev).
+Paste a key and it is tested with one search, then saved to the system keychain (macOS Keychain, service
+`loomcode`), never to a file. Skipping is fine: loomcode works without web access, and `loomcode --setup`
+changes this later. With a provider set, the agent gets `web_search` and `web_fetch`.
+
 ## Usage
 
 ```sh
-bun install
-bun run code                    # interactive TUI in the current directory
-bun src/cli.ts "fix the failing test"   # one-shot, plain output
-bun src/cli.ts --json "…"       # final result as JSON on stderr, for benchmarks
+loomcode                            # interactive TUI in the current directory
+loomcode "fix the failing test"     # one-shot, plain output
+loomcode --json "…"                 # final result as JSON on stderr, for benchmarks
 ```
+
+From a clone: `bun install`, then `bun src/cli.ts` in place of `loomcode`.
 
 Options:
 
@@ -49,6 +63,7 @@ Options:
 | `--plain` | no TUI, even in a terminal |
 | `--json` | also print the final result message as JSON (stderr) |
 | `-v, --verbose` | print every SDK message in plain mode |
+| `--setup` | check Claude Code and choose a web search provider |
 
 ### In the TUI
 

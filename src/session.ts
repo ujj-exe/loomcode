@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { COMPACT_INSTRUCTIONS, compactAt, saveSummary } from "./compact.ts";
 import { systemPrompt } from "./prompt.ts";
 import { loomTools, TOOL_NAMES } from "./tools.ts";
+import { webAccess } from "./web.ts";
 
 export type Effort = "low" | "medium" | "high" | "xhigh" | "max";
 export const EFFORTS: Effort[] = ["low", "medium", "high", "xhigh", "max"];
@@ -41,11 +42,16 @@ async function userMcpServers(cwd: string): Promise<Record<string, McpServerConf
 
 // One long-lived claude process driven by a prompt stream: only the first turn pays startup, and model and
 // effort switch in place. The user's own unmodified claude binary signs in with their own login.
-export async function openSession(opts: SessionOptions) {
-  // Skip Loom.app's claude shim (~/.loom/bin): it adds its browser MCP (~25 tool definitions) and a hook process per event.
+// The user's own claude binary. Skips Loom.app's shim (~/.loom/bin): it adds its browser MCP (~25 tool
+// definitions) and a hook process per event.
+export function findClaude(): string | null {
   const shim = join(homedir(), ".loom", "bin");
-  const claude = Bun.which("claude", { PATH: (process.env.PATH ?? "").split(":").filter((d) => d !== shim).join(":") });
-  if (!claude) throw new Error("claude not found on PATH — install Claude Code and sign in first");
+  return Bun.which("claude", { PATH: (process.env.PATH ?? "").split(":").filter((d) => d !== shim).join(":") });
+}
+
+export async function openSession(opts: SessionOptions) {
+  const claude = findClaude();
+  if (!claude) throw new Error("claude not found on PATH — install Claude Code and sign in first (loomcode --setup)");
 
   const pending: SDKUserMessage[] = [];
   let wake: (() => void) | undefined;
@@ -69,7 +75,7 @@ export async function openSession(opts: SessionOptions) {
       pathToClaudeCodeExecutable: claude,
       systemPrompt: { type: "custom", prompt: await systemPrompt(opts.cwd) },
       tools: opts.integrations ? ["ToolSearch"] : [],
-      mcpServers: { ...(opts.integrations ? await userMcpServers(opts.cwd) : {}), loom: loomTools(opts.cwd) },
+      mcpServers: { ...(opts.integrations ? await userMcpServers(opts.cwd) : {}), loom: loomTools(opts.cwd, await webAccess()) },
       strictMcpConfig: !opts.integrations,
       // With an approver, loom's own tools are allowed inside it; listing them here too would bypass the callback.
       ...(opts.approve ? { canUseTool: approver(opts.approve) } : { allowedTools: TOOL_NAMES }),

@@ -1,3 +1,4 @@
+#!/usr/bin/env bun
 import { createInterface } from "node:readline/promises";
 import { parseArgs } from "node:util";
 import type { Effort } from "./session.ts";
@@ -10,6 +11,7 @@ const { values: opts, positionals } = parseArgs({
     verbose: { type: "boolean", short: "v" },
     json: { type: "boolean" },
     plain: { type: "boolean" },
+    setup: { type: "boolean" },
   },
 });
 
@@ -17,8 +19,15 @@ const cwd = process.cwd();
 const effort = opts.effort as Effort;
 const oneShot = positionals.length > 0;
 
+const interactive = !oneShot && !opts.json && !opts.plain && process.stdin.isTTY && process.stdout.isTTY;
+// Onboarding: on request, or on the first interactive run.
+if (opts.setup || (interactive && !(await (await import("./web.ts")).loadConfig()))) {
+  const ok = await (await import("./setup.ts")).setup();
+  if (!ok || opts.setup) process.exit(ok ? 0 : 1);
+}
+
 // An interactive terminal gets the TUI; prompts on the command line, pipes and --json stay plain (benchmarks use these).
-if (!oneShot && !opts.json && !opts.plain && process.stdin.isTTY && process.stdout.isTTY) {
+if (interactive) {
   const { runTui } = await import("./tui/app.ts");
   await runTui({ cwd, model: opts.model, effort });
 } else {
