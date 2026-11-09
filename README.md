@@ -44,6 +44,17 @@ Paste a key and it is tested with one search, then saved to the system keychain 
 `loomcode`), never to a file. Skipping is fine: loomcode works without web access, and `loomcode --setup`
 changes this later. With a provider set, the agent gets `web_search` and `web_fetch`.
 
+From a clone, `bun install && bun link` makes `loomcode` run your working copy, so edits apply without
+reinstalling. Global installs land in `~/.bun/bin`, which must be on your PATH.
+
+Uninstall:
+
+```sh
+bun remove -g loomcode                     # or `bun unlink` in the clone
+rm -f ~/.loom/code.json ~/.loom/tui.json   # settings; leave the rest of ~/.loom (Loom.app uses it)
+security delete-generic-password -s loomcode -a exa   # web search key, if saved (account: exa, firecrawl or context)
+```
+
 ## Usage
 
 ```sh
