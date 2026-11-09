@@ -47,6 +47,15 @@ changes this later. With a provider set, the agent gets `web_search` and `web_fe
 From a clone, `bun install && bun link` makes `loomcode` run your working copy, so edits apply without
 reinstalling. Global installs land in `~/.bun/bin`, which must be on your PATH.
 
+Update:
+
+```sh
+loomcode --update   # installs the latest commit on main (in a clone: git pull + bun install)
+```
+
+Re-running `bun add -g` does not update: bun keeps the commit it first installed. The TUI checks GitHub once a
+day and shows a notice when a newer version is out.
+
 Uninstall:
 
 ```sh
@@ -75,6 +84,7 @@ Options:
 | `--json` | also print the final result message as JSON (stderr) |
 | `-v, --verbose` | print every SDK message in plain mode |
 | `--setup` | check Claude Code and choose a web search provider |
+| `--update` | update to the latest version on GitHub |
 
 ### In the TUI
 

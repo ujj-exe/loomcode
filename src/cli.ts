@@ -12,8 +12,11 @@ const { values: opts, positionals } = parseArgs({
     json: { type: "boolean" },
     plain: { type: "boolean" },
     setup: { type: "boolean" },
+    update: { type: "boolean" },
   },
 });
+
+if (opts.update) process.exit((await (await import("./update.ts")).update()) ? 0 : 1);
 
 const cwd = process.cwd();
 const effort = opts.effort as Effort;

@@ -1007,6 +1007,10 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
   preloadGrammars();
   drawer.refresh().then(draw);
   gitBranch(opts.cwd).then((b) => ((branch = b), draw()));
+  import("../update.ts")
+    .then((u) => u.updateAvailable())
+    .then((v) => v && say(`update available (${v}) · run loomcode --update`, 10_000))
+    .catch(() => {});
   await connect();
   await new Promise(() => {}); // run until quit()
 }
