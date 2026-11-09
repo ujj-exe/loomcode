@@ -43,9 +43,13 @@ async function runPlain() {
   const session = await openSession({ cwd, model: opts.model, effort, onCheckpoint: (p) => console.log(dim(`[checkpoint saved: ${p}]`)) });
 
   let sent = 0;
-  const send = (text: string) => {
+  const { expandSkill, loadSkills } = await import("./skills.ts");
+  const skills = await loadSkills(cwd);
+  // `/name request` runs that skill; anything else goes as typed.
+  const send = async (text: string) => {
+    const prompt = text.startsWith("/") ? await expandSkill(text, skills) : null;
     sent = performance.now();
-    if (session.send(text)) console.log(dim(`[compacting: ${session.context} tokens in context]`));
+    if (session.send(prompt ?? text)) console.log(dim(`[compacting: ${session.context} tokens in context]`));
   };
   const rl = oneShot ? undefined : createInterface({ input: process.stdin, output: process.stdout });
   async function ask() {

@@ -11,6 +11,7 @@ import { clipboardImage, copyText, droppedImages, loadImage } from "./images.ts"
 import { type InputEvent, type Key, KeyParser, type Mouse } from "./keys.ts";
 import { StreamMarkdown } from "./markdown.ts";
 import { Screen } from "./screen.ts";
+import { expandSkill, loadSkills, type Skill } from "../skills.ts";
 import { revertFile } from "../tools.ts";
 import { type Entry, measure, secs, spinner, type Tool, Transcript } from "./transcript.ts";
 
@@ -122,7 +123,13 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
   let sentAt = 0;
   let firstToken = 0;
   let lastTurn = "";
-  let queue: { text: string; images: any[] }[] = [];
+  let queue: { text: string; images: any[]; prompt?: string }[] = [];
+  let skills: Skill[] = [];
+  // Built-in commands, then the user's skills (a skill never shadows a built-in).
+  const slashItems = (): [string, string][] => [
+    ...COMMANDS,
+    ...skills.filter((s) => !COMMANDS.some(([k]) => k === `/${s.name}`)).map((s): [string, string] => [`/${s.name}`, s.description || "skill"]),
+  ];
   let stopping = false;
   let picker: Picker | null = null;
   let notice = "";
@@ -244,7 +251,10 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
       lines.push(c.dim("  ↑↓ choose · enter select · esc cancel"));
     } else if (editor.text.startsWith("/") && !editor.text.includes(" ")) {
       lines.push("");
-      for (const [cmd, help] of COMMANDS.filter(([cmd]) => cmd.startsWith(editor.text))) lines.push(fit(`    ${c.accent(cmd.padEnd(11))}${c.dim(help)}`, W));
+      const hits = slashItems().filter(([cmd]) => cmd.startsWith(editor.text));
+      const pad = Math.min(28, Math.max(11, ...hits.map(([k]) => k.length + 2)));
+      for (const [cmd, help] of hits.slice(0, 10)) lines.push(fit(`    ${c.accent(cmd.padEnd(pad))}${c.dim(help.replace(/\s+/g, " "))}`, W));
+      if (hits.length > 10) lines.push(c.dim(`    … ${hits.length - 10} more, keep typing`));
     }
     lines.push(c.dim("─".repeat(W)));
     // editor, scrolled to keep the caret visible
@@ -558,19 +568,20 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
   }
 
   // ── actions ────────────────────────────────────────────────────────────────
-  function send(text: string, images: any[] = []) {
-    if (!session || busy()) queue.push({ text, images });
-    else dispatch({ text, images });
+  // `prompt`, when given, is what the model gets in place of the text shown (an expanded skill).
+  function send(text: string, images: any[] = [], prompt?: string) {
+    if (!session || busy()) queue.push({ text, images, prompt });
+    else dispatch({ text, images, prompt });
   }
 
-  function dispatch(p: { text: string; images: any[] }) {
+  function dispatch(p: { text: string; images: any[]; prompt?: string }) {
     transcript.add({ kind: "user", text: p.text, images: p.images });
     stopping = false;
     scroll = 0;
     sentAt = performance.now();
     firstToken = 0;
     setPhase("waiting");
-    if (session!.send(p.text, p.images)) setPhase("compacting");
+    if (session!.send(p.prompt ?? p.text, p.images)) setPhase("compacting");
   }
 
   function submit() {
@@ -581,6 +592,10 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
       return;
     }
     const { text, images } = editor.submit();
+    if (text.startsWith("/") && skills.length) {
+      expandSkill(text, skills).then((prompt) => send(text, images, prompt ?? undefined));
+      return;
+    }
     send(text, images);
   }
 
@@ -740,6 +755,7 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
   function paletteItems(filter: string): PaletteItem[] {
     const all: PaletteItem[] = [
       ...COMMANDS.filter(([k]) => k !== "/help").map(([k, h]) => ({ label: k, hint: h, run: () => command(k) || undefined })),
+      ...skills.map((sk) => ({ label: `/${sk.name}`, hint: "skill", run: () => (editor.clear(), editor.insert(`/${sk.name} `)) })),
       ...models.map((m) => ({ label: `model: ${label(m)}`, hint: m.value === model ? "current" : m.displayName, run: () => setModel(m.value) })),
       ...efforts.map((e) => ({ label: `effort: ${e}`, hint: e === effort ? "current" : undefined, run: () => setEffort(e) })),
       { label: "help", hint: "keys and commands", run: () => command("/help") },
@@ -918,7 +934,7 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
     }
     if (k.name === "tab" && k.shift) return setEffort(efforts[(efforts.indexOf(effort) + 1) % efforts.length]!);
     if (k.name === "tab" && editor.text.startsWith("/")) {
-      const hit = COMMANDS.find(([cmd]) => cmd.startsWith(editor.text));
+      const hit = slashItems().find(([cmd]) => cmd.startsWith(editor.text));
       if (hit) {
         editor.clear();
         editor.insert(`${hit[0]} `);
@@ -1007,6 +1023,7 @@ export async function runTui(opts: { cwd: string; model?: string; effort: Effort
   preloadGrammars();
   drawer.refresh().then(draw);
   gitBranch(opts.cwd).then((b) => ((branch = b), draw()));
+  loadSkills(opts.cwd).then((s) => ((skills = s), draw()));
   import("../update.ts")
     .then((u) => u.updateAvailable())
     .then((v) => v && say(`update available (${v}) · run loomcode --update`, 10_000))

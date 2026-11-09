@@ -18,6 +18,9 @@ It replaces Claude Code's built-in tools with five lean ones and adds a hand-wri
   - syntax highlighting
   - a files drawer
   - pasted or dropped images
+- **Skills, only when you call them**: `/name request` runs a skill from `~/.claude/skills` or the project's
+  `.claude/skills` (a project skill wins over a user skill with the same name). The model never sees a list of skills,
+  so they add no tokens until used. Type `/` to see them.
 - **Your integrations**: MCP servers from `~/.claude.json` and `.mcp.json`, plus Claude in Chrome. claude.ai connectors are opt-in.
 - **Compaction** with checkpoints saved to disk, so long sessions keep going.
 - **Plain and JSON modes** for scripts and benchmarks.
@@ -122,6 +125,7 @@ Options:
 | `/compact` | summarize the conversation to free context |
 | `/clear` | start a fresh conversation |
 | `/help` | keys and commands |
+| `/<skill> …` | run one of your skills on the rest of the line |
 | `/exit` | quit |
 
 **Keys:**
