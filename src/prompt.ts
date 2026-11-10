@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 
 // Sections stay byte-identical between turns so the whole prompt is a cache hit.
 const CORE = `You are loom, a coding agent working in the user's project. Be brief: short answers, no preamble, no recaps of what the user can see.
@@ -34,7 +35,9 @@ After changing code, end with one line: what you skipped or did not check.
 // The project's files (gitignore respected) so the first turn can read the right ones instead of listing.
 // Taken once per session: the prompt must stay identical between turns to stay cached.
 const MAX_FILES = 150;
-export function fileList(cwd: string): string | null {
+export function fileList(cwd: string, home = homedir()): string | null {
+  // The home folder isn't a project: its listing is thousands of tokens of unrelated files.
+  if (resolve(cwd) === resolve(home)) return null;
   let out = "";
   try {
     out = Bun.spawnSync(["rg", "--files", "--sort=path"], { cwd, stdout: "pipe", stderr: "ignore", timeout: 3000 }).stdout.toString();
